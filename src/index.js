@@ -1,5 +1,7 @@
-const port = process.env.PORT || 8080;
-const apiKey = process.env.ANTHROPIC_API_KEY;
+import app from './app.js';
 
-console.log(`Server is running on port ${port}`);
-console.log(`Anthropic API Key: ${apiKey}`);
+const port = process.env.PORT || 3000;
+
+app.listen(port, () => {
+  console.log(`Expenses API Server is running on http://localhost:${port}`);
+});
