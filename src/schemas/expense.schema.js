@@ -33,13 +33,9 @@ export const expenseSchema = z.object({
   }),
 
   date: z
-    .string({ error: 'Date is required' })
-    .regex(/^\d{4}-\d{2}-\d{2}$/, {
-      message: 'Date must be in YYYY-MM-DD format',
-    })
-    .refine((val) => !Number.isNaN(Date.parse(val)), {
-      message: 'Invalid date format',
-    }),
+    .isoDate({ error: 'Date must be in YYYY-MM-DD format' })
+    .optional()
+    .default(() => new Date().toISOString().split('T')[0]),
 
   merchant: z.string().trim().max(100).optional(),
 
