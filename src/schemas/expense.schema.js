@@ -32,8 +32,9 @@ export const expenseSchema = z.object({
     message: `Category must be one of ${AllowedCategories.join(', ')}`,
   }),
 
-  date: z
-    .isoDate({ error: 'Date must be in YYYY-MM-DD format' })
+  //[0] after .split('T') so .default(...) returns the 'YYYY-MM-DD' date string rather than an array!
+  date: z.iso
+    .date({ error: 'Date must be in YYYY-MM-DD format' })
     .optional()
     .default(() => new Date().toISOString().split('T')[0]),
 

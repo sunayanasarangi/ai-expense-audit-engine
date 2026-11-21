@@ -1,4 +1,5 @@
 import express from 'express';
+import expensesRouter from './routes/expenses.routes.js';
 
 /*Creates your Express application instance
  *(the central object where you attach middleware and routes).
@@ -20,19 +21,10 @@ app.get('/health', (req, res) => {
   });
 });
 
-/*Testing Native Async Error Catching (GET /test-async-error)
- *Async route that throws an error WITHOUT try/catch
- */
-
-app.get('/test-async-error', async () => {
-  //Simulate an asynchronous database or API error
-  await Promise.resolve();
-  const error = new Error('Simulated async database error');
-  error.status = 503;
-  throw error;
-});
+app.use('/expenses', expensesRouter);
 
 //Global Error Handling Middleware
+//Must always stay at the very bottom so it catches errors from all routes above it).
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
   const statusCode = err.status || 500;
