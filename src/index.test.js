@@ -1,6 +1,5 @@
 import { describe, it, before, after, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import app from './app.js';
 
 //named exports, hence imported within curly braces
 import { validateSchema } from './middleware/validate.js';
@@ -9,9 +8,25 @@ import { expenseSchema } from './schemas/expense.schema.js';
 describe('Express V5 Server and Native Aysnc Error Handling', () => {
   let server;
   let baseUrl;
+  let app;
 
   // Start a server at port 0: (OS picks an available port automatically)
   before(async () => {
+    process.env.DB_FILE_NAME = ':memory:';
+
+    const [{ default: loadedApp }, { db }, schema, { pushSQLiteSchema }] =
+      await Promise.all([
+        import('./app.js'),
+        import('./db/index.js'),
+        import('./db/schema.js'),
+        import('drizzle-kit/api'),
+      ]);
+
+    app = loadedApp;
+
+    const sqlitePush = await pushSQLiteSchema(schema, db);
+    await sqlitePush.apply();
+
     await new Promise((resolve) => {
       server = app.listen(0, () => {
         const { port } = server.address();
@@ -41,7 +56,7 @@ describe('Express V5 Server and Native Aysnc Error Handling', () => {
     assert.ok(data.timestamp, 'Expected ISO timestamp in response');
   });
 
-  it('POST /expenses with valid data returns 201 and the correct response', async () => {
+  it('POST /expenses adds expense to database and returns the object', async () => {
     const validExpense = {
       title: 'Lunch',
       amount: 12.5,
@@ -54,10 +69,24 @@ describe('Express V5 Server and Native Aysnc Error Handling', () => {
     });
     assert.strictEqual(response.status, 201);
     const data = await response.json();
-    assert.strictEqual(data.message, 'Expense validated successfully');
+    assert.strictEqual(data.message, 'Expense created successfully');
     assert.strictEqual(data.data.title, validExpense.title);
     assert.strictEqual(data.data.amount, validExpense.amount);
     assert.strictEqual(data.data.category, validExpense.category);
+    assert.ok(data.data.id);
+    assert.ok(data.data.createdAt);
+  });
+
+  it('GET /expenses returns 200 and an array of expenses', async () => {
+    const response = await fetch(`${baseUrl}/expenses`);
+    assert.strictEqual(response.status, 200);
+    const data = await response.json();
+    assert.ok(
+      data.data.length >= 1,
+      'Expected at least one expense in the response'
+    );
+    assert.ok(Array.isArray(data.data), 'Expected data to be an array');
+    assert.strictEqual(data.data[0].title, 'Lunch');
   });
 
   it('POST /expenses with invalid data returns 400 and validation error', async () => {
