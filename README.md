@@ -36,7 +36,7 @@ A backend REST API built with Node.js, Express v5, and Drizzle ORM for managing 
 1. **Clone the repository:**
 
    ```bash
-   git clone https://github.com/<your-username>/<your-repo-name>.git
+   git clone https://github.com/sunayanasarangi/ai-expense-audit-engine.git
    cd <your-repo-name>
    ```
 
@@ -53,7 +53,13 @@ A backend REST API built with Node.js, Express v5, and Drizzle ORM for managing 
    cp .env.example .env
    ```
 
-4. **Start the development server:**
+4. **Initialize the SQLite database:**
+
+   ```bash
+   npm run db:push
+   ```
+
+5. **Start the development server:**
    ```bash
    npm run dev
    ```
