@@ -1,4 +1,5 @@
 import express from 'express';
+import authRouter from './routes/auth.routes.js';
 import expensesRouter from './routes/expenses.routes.js';
 
 /*Creates your Express application instance
@@ -22,6 +23,7 @@ app.get('/health', (req, res) => {
 });
 
 app.use('/expenses', expensesRouter);
+app.use('/auth', authRouter);
 
 //Global Error Handling Middleware
 //Must always stay at the very bottom so it catches errors from all routes above it).

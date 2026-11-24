@@ -9,10 +9,15 @@ describe('Express V5 Server and Native Aysnc Error Handling', () => {
   let server;
   let baseUrl;
   let app;
+  let aliceToken;
+  let aliceId;
 
   // Start a server at port 0: (OS picks an available port automatically)
   before(async () => {
     process.env.DB_FILE_NAME = ':memory:';
+    //set JWT_SECRET so tests pass even in CI without a .env file
+    process.env.JWT_SECRET =
+      process.env.JWT_SECRET || 'test-jwt-secret-key-at-least-32-chars-long';
 
     const [{ default: loadedApp }, { db }, schema, { pushSQLiteSchema }] =
       await Promise.all([
@@ -56,7 +61,89 @@ describe('Express V5 Server and Native Aysnc Error Handling', () => {
     assert.ok(data.timestamp, 'Expected ISO timestamp in response');
   });
 
-  it('POST /expenses adds expense to database and returns the object', async () => {
+  it('POST /auth/register creates a user and returns a JWT', async () => {
+    const user = {
+      username: 'Alice',
+      email: 'alice@example.com',
+      password: 'password123',
+    };
+    const response = await fetch(`${baseUrl}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(user),
+    });
+    assert.strictEqual(response.status, 201);
+    const body = await response.json();
+    assert.ok(body.data.token);
+    assert.ok(body.data.user.id);
+    assert.strictEqual('passwordHash' in body.data.user, false);
+    aliceToken = body.data.token;
+    aliceId = body.data.user.id;
+  });
+
+  it('POST /auth/register rejects a duplicate email', async () => {
+    const response = await fetch(`${baseUrl}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: 'Alice',
+        email: 'alice@example.com',
+        password: 'password123',
+      }),
+    });
+    assert.strictEqual(response.status, 409);
+    assert.deepStrictEqual(await response.json(), {
+      error: 'Email already registered',
+    });
+  });
+
+  it('POST /auth/login returns a JWT for valid credentials', async () => {
+    const response = await fetch(`${baseUrl}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'alice@example.com',
+        password: 'password123',
+      }),
+    });
+    assert.strictEqual(response.status, 200);
+    const body = await response.json();
+    assert.ok(body.data.token);
+    assert.strictEqual('passwordHash' in body.data.user, false);
+  });
+
+  it('POST /auth/login rejects an invalid password', async () => {
+    const response = await fetch(`${baseUrl}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'alice@example.com',
+        password: 'incorrect-password',
+      }),
+    });
+    assert.strictEqual(response.status, 401);
+    assert.deepStrictEqual(await response.json(), {
+      error: 'Invalid email or password',
+    });
+  });
+
+  it('GET and POST /expenses require authentication', async () => {
+    const getResponse = await fetch(`${baseUrl}/expenses`);
+    const postResponse = await fetch(`${baseUrl}/expenses`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: 'Lunch',
+        amount: 12.5,
+        category: 'Food',
+      }),
+    });
+
+    assert.strictEqual(getResponse.status, 401);
+    assert.strictEqual(postResponse.status, 401);
+  });
+
+  it('POST /expenses creates an expense for the authenticated user', async () => {
     const validExpense = {
       title: 'Lunch',
       amount: 12.5,
@@ -64,29 +151,55 @@ describe('Express V5 Server and Native Aysnc Error Handling', () => {
     };
     const response = await fetch(`${baseUrl}/expenses`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${aliceToken}`,
+      },
       body: JSON.stringify(validExpense),
     });
     assert.strictEqual(response.status, 201);
-    const data = await response.json();
-    assert.strictEqual(data.message, 'Expense created successfully');
-    assert.strictEqual(data.data.title, validExpense.title);
-    assert.strictEqual(data.data.amount, validExpense.amount);
-    assert.strictEqual(data.data.category, validExpense.category);
-    assert.ok(data.data.id);
-    assert.ok(data.data.createdAt);
+    const body = await response.json();
+    assert.strictEqual(body.message, 'Expense created successfully');
+    assert.strictEqual(body.data.title, validExpense.title);
+    assert.strictEqual(body.data.amount, validExpense.amount);
+    assert.strictEqual(body.data.category, validExpense.category);
+    assert.ok(body.data.id);
+    assert.strictEqual(body.data.userId, aliceId);
+    assert.ok(body.data.createdAt);
   });
 
-  it('GET /expenses returns 200 and an array of expenses', async () => {
-    const response = await fetch(`${baseUrl}/expenses`);
+  it("GET /expenses returns the authenticated user's expenses", async () => {
+    const response = await fetch(`${baseUrl}/expenses`, {
+      headers: { Authorization: `Bearer ${aliceToken}` },
+    });
     assert.strictEqual(response.status, 200);
-    const data = await response.json();
+    const body = await response.json();
+    assert.ok(Array.isArray(body.data), 'Expected data to be an array');
     assert.ok(
-      data.data.length >= 1,
-      'Expected at least one expense in the response'
+      body.data.some((expense) => expense.title === 'Lunch'),
+      'Expected the created expense in the response'
     );
-    assert.ok(Array.isArray(data.data), 'Expected data to be an array');
-    assert.strictEqual(data.data[0].title, 'Lunch');
+  });
+
+  it("GET /expenses does not return another user's expenses", async () => {
+    const registerResponse = await fetch(`${baseUrl}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: 'Bob',
+        email: 'bob@example.com',
+        password: 'password123',
+      }),
+    });
+    assert.strictEqual(registerResponse.status, 201);
+    const registerBody = await registerResponse.json();
+
+    const response = await fetch(`${baseUrl}/expenses`, {
+      headers: { Authorization: `Bearer ${registerBody.data.token}` },
+    });
+    assert.strictEqual(response.status, 200);
+    const body = await response.json();
+    assert.strictEqual(body.data.length, 0);
   });
 
   it('POST /expenses with invalid data returns 400 and validation error', async () => {
@@ -97,7 +210,10 @@ describe('Express V5 Server and Native Aysnc Error Handling', () => {
     };
     const response = await fetch(`${baseUrl}/expenses`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${aliceToken}`,
+      },
       body: JSON.stringify(invalidExpense),
     });
     assert.strictEqual(response.status, 400);
